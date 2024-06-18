@@ -1,0 +1,17 @@
+{
+  "name": "Nvim: Devcontainer",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "options": ["--name=league_predictor_dev"],
+    "args": {
+      "USER_NAME": "summoner",
+      "GROUP_NAME": "summoner",
+      "USER_ID": "1001",
+      "GROUP_ID": "1001"
+    }
+  },
+  "mounts": [],
+  "workspaceMount": "",
+  "workspaceFolder": "",
+  "remoteUser": "summoner"
+}
