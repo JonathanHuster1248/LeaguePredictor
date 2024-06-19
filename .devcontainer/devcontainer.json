@@ -1,5 +1,5 @@
 {
-  "name": "Nvim: Devcontainer",
+  "name": "Devcontainer",
   "build": {
     "dockerfile": "../Dockerfile",
     "options": ["--name=league_predictor_dev"],
