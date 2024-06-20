@@ -172,6 +172,53 @@ class TeamAggregator(DataAggregator):
         super().__init__()
 
     @staticmethod
+    def process_player_frame(player_frame: dict[str, float]) -> pd.Series:
+        team = PLAYER_TEAM_MAP[player_frame["participantId"]]
+        cs = f"cs_{team}"
+        gold = f"gold_{team}"
+        player_addition = pd.Series()
+        player_addition.loc[cs] = (
+            player_frame["jungleMinionsKilled"] + player_frame["minionsKilled"]
+        )
+        player_addition.loc[gold] = player_frame["totalGold"]
+        # TODO: XP could be added here, but likely won't be a driving factor until there is a sizeable xp diff
+        # Would maybe be easier to do with just lv difference, but at a minute scale it would be hard
+        # To catch the difference
+        return player_addition
+
+    @staticmethod
+    def process_event_frame(event: dict[str, str | list | int]) -> pd.Series:
+        event_frame = pd.Series()
+        event_type = event["type"]
+        if event_type not in TeamAggregator.event_map:
+            return event_frame
+        try:
+            team = event["teamId"] if "teamId" in event else PLAYER_TEAM_MAP[event["killerId"]]
+        except KeyError:
+            # Event not affiliated with a team. Skip to next
+            return event_frame
+
+        # CONTINUE HERE
+        if event_type == "ELITE_MONSTER_KILL":
+            monster = TeamAggregator.event_map[event_type][event["monsterType"]]
+            event_frame.loc[f"{monster}_{team}"] = 1
+        if event_type == "BUILDING_KILL":
+            monster = TeamAggregator.event_map[event_type][event["buildingType"]]
+            event_frame.loc[f"{monster}_{team}"] = 1
+        if event_type == "CHAMPION_KILL":
+            killed_team = PLAYER_TEAM_MAP[event["victimId"]]
+            if killed_team == team:
+                logger.warning(
+                    "Data found where one team member killed another team member. If Renatta Glasc is not involved, I don't know what happened"
+                )
+            # assert killed_team != team
+
+            event_frame.loc[f"kills_{team}"] = 1
+            event_frame.loc[f"assists_{team}"] = len(event.get("assistingParticipantIds", []))
+            event_frame.loc[f"deaths_{killed_team}"] = 1
+        return event_frame
+
+    @staticmethod
     def add_frame(frame: dict) -> pd.Series:
         events = frame.get("events") or []
         player_frames = frame.get("participantFrames") or {}
@@ -180,44 +227,12 @@ class TeamAggregator(DataAggregator):
 
         # Add data from player snapshots
         for player in player_frames.values():
-            team = PLAYER_TEAM_MAP[player["participantId"]]
-            frame_series.loc[f"cs_{team}"] += (
-                player["jungleMinionsKilled"] + player["minionsKilled"]
-            )
-            frame_series.loc[f"gold_{team}"] += player["totalGold"]
-            # TODO: XP could be added here, but likely won't be a driving factor until there is a sizeable xp diff
-            # Would maybe be easier to do with just lv difference, but at a minute scale it would be hard
-            # To catch the difference
-
+            player_snapshot = TeamAggregator.process_player_frame(player)
+            frame_series = frame_series.add(player_snapshot, fill_value=0)
         # Add data from event snapshots
         for event in events:
-            event_type = event["type"]
-            if event_type not in TeamAggregator.event_map:
-                continue
-            try:
-                team = event["teamId"] if "teamId" in event else PLAYER_TEAM_MAP[event["killerId"]]
-            except KeyError:
-                # Event not affiliated with a team. Skip to next
-                continue
-
-            # CONTINUE HERE
-            if event_type == "ELITE_MONSTER_KILL":
-                monster = TeamAggregator.event_map[event_type][event["monsterType"]]
-                frame_series.loc[f"{monster}_{team}"] += 1
-            if event_type == "BUILDING_KILL":
-                monster = TeamAggregator.event_map[event_type][event["buildingType"]]
-                frame_series.loc[f"{monster}_{team}"] += 1
-            if event_type == "CHAMPION_KILL":
-                killed_team = PLAYER_TEAM_MAP[event["victimId"]]
-                if killed_team == team:
-                    logger.warning(
-                        "Data found where one team member killed another team member. If Renatta Glasc is not involved, I don't know what happened"
-                    )
-                # assert killed_team != team
-
-                frame_series.loc[f"kills_{team}"] += 1
-                frame_series.loc[f"assists_{team}"] += len(event.get("assistingParticipantIds", []))
-                frame_series.loc[f"deaths_{killed_team}"] += 1
+            event_frame = TeamAggregator.process_event_frame(event)
+            frame_series = frame_series.add(event_frame, fill_value=0)
         return frame_series
 
     @staticmethod
