@@ -1,0 +1,58 @@
+name: style-and-analysis
+
+env:
+  PYTHON_VERSION: '3.12'
+
+run-name:
+  ${{ github.actor }} style and analysis
+
+# Only on push of python files
+on:
+  push:
+    paths:
+      - "./leaguepy/**.py"
+
+jobs:
+  style:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Check Black Formatter
+        id: check_black
+        uses: psf/black@stable
+        with:
+          options: "--check"
+          src: "./leaguepy"
+        continue-on-error: true # Black will exit code 1 (error) if there are changes
+      - name: Update Files with Black Formatter
+        id: update_black
+        uses: psf/black@stable
+        with:
+          options: ""
+          src: "./leaguepy"
+        continue-on-error: false
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          title: "Format Python code with psf/black"
+          commit-message: "Format Python code with psf/black"
+          body: |
+            There appear to be some python formatting errors in ${{ github.sha }}. This pull request
+            uses the [psf/black](https://github.com/psf/black) formatter to fix these issues.
+          base: ${{ github.head_ref }}
+          branch: actions/black
+          token: ${{ secrets.GITHUB_TOKEN }}
+  analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: $PYTHON_VERSION
+      - name: Checkout repo 
+        uses: actions/checkout@v4
+      - name: Install mypy
+        run: pip install mypy
+      - name: Run mypy on repo
+        run: mypy ./leaguepredictor/leaguepy --config-file=.mypy.ini
