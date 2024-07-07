@@ -80,6 +80,10 @@ URLS = {
 }
 
 
+# ===================DATA GATHERING CONSTANTS====================
+SEED_PUUID = "jmErjfBJ2tBOKgQvAlpwDKqatv7Me7H8_KI5iUkbcszfwMorv_0piifdO0___EMXWgY8b25X-CMY2w"  # PUUID from a player in a game with Faker in it
+
+
 # ===================DATA PROCESSING CONSTANTS====================
 
 NUMBER_PLAYERS = 10

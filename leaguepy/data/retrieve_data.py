@@ -63,6 +63,9 @@ def write_if_not_none(data, filename: Path | None = None) -> None:
             json.dump(data, outfile)
 
 
+# This function is relatively less useful now that the endpoint requries both the username and the
+# tag, which is hard to get, so instead use function gather_puuid_from_seed to get a list of
+# PUUIDs to iterate over.
 @retry_on_rate_limit()
 def pull_puuid(username: str, tagline: str, region: Region = Region.ASIA) -> requests.Response:
     URL = URLS["puuid"]
@@ -92,15 +95,122 @@ def get_match_history(
 
 @retry_on_rate_limit()
 def get_timeline(match_id: str, region: Region = Region.ASIA) -> requests.Response:
+    # data return structure
+    # - 'metadata'
+    #     - 'dataVersion'
+    #         - str (int)
+    #     - 'matchId'
+    #         - str
+    #     - 'participants'
+    #         - set[str]
+    # - 'info'
+    #     - 'frameInterval'
+    #         -int # probably ms
+    #     - 'frames'
+    #         - list
+    #             - 'events'
+    #             - 'participantFrames'
+    #                 - ['participantid']
+    #                     - 'championStats'
+    #                         - 'abilityHaste'
+    #                         - 'abilityPower'
+    #                         - 'armor'
+    #                         - 'armorPen'
+    #                         - 'armorPenPercent'
+    #                         - 'attackDamage'
+    #                         - 'attackSpeed'
+    #                         - 'bonusArmorPenPercent'
+    #                         - 'bonusMagicPenPercent'
+    #                         - 'ccReduction'
+    #                         - 'cooldownReduction'
+    #                         - 'health'
+    #                         - 'healthMax'
+    #                         - 'healthRegen'
+    #                         - 'lifesteal'
+    #                         - 'magicPen'
+    #                         - 'magicPenPercent'
+    #                         - 'magicResist'
+    #                         - 'movementSpeed'
+    #                         - 'omnivamp'
+    #                         - 'physicalVamp'
+    #                         - 'power'
+    #                         - 'powerMax'
+    #                         - 'powerRegen'
+    #                         - 'spellVamp'
+    #                     - 'currentGold'
+    #                         - int
+    #                     - 'damageStats'
+    #                         - 'magicDamageDone'
+    #                         - 'magicDamageDoneToChampions'
+    #                         - 'magicDamageTaken'
+    #                         - 'physicalDamageDone'
+    #                         - 'physicalDamageDoneToChampions'
+    #                         - 'physicalDamageTaken'
+    #                         - 'totalDamageDone'
+    #                         - 'totalDamageDoneToChampions'
+    #                         - 'totalDamageTaken'
+    #                         - 'trueDamageDone'
+    #                         - 'trueDamageDoneToChampions'
+    #                         - 'trueDamageTaken'
+    #                     - 'goldPerSecond'
+    #                         - int
+    #                     - 'jungleMinionsKilled'
+    #                         - int
+    #                     - 'level'
+    #                         - int
+    #                     - 'minionsKilled'
+    #                         - int
+    #                     - 'participantId'
+    #                         - int
+    #                     - 'position'
+    #                         - 'x' int
+    #                         - 'y' int
+    #                     - 'timeEnemySpentControlled'
+    #                         - int
+    #                     - 'totalGold'
+    #                         - int
+    #                     - 'xp
+    #                         - int
+    #             - 'timestamp'
+    #                 -int
+    #     - 'gameId'
+    #         - int
+    #     - 'participants'
+    #         - dict[int, str]
+
     URL = URLS["timeline"]
     logger.info(f"Pulling timeline for match_id: {match_id}")
     response = requests.get(URL.format(region=region.value, match_id=match_id), params=RIOT_PARAMS)
     return response
 
 
+def get_player_ids(match: dict[str, dict]) -> set[str]:
+    return set(match.get("metadata", {}).get("participants", {}))
+
+
+def get_puuid_options(seed_puuid: str, seed_region: Region, depth: int = 5) -> set[str]:
+    if depth == 0:
+        return set(seed_puuid)
+
+    puuid_options = set()
+
+    match_history = get_match_history(seed_puuid, region=seed_region, count=depth).json()
+    for match_id in match_history:
+        match_data = get_timeline(match_id, region=seed_region).json()
+        puuid_options = puuid_options.union(get_player_ids(match_data))
+        # TODO: this ignores the correlation between players (eg we know that all 10 players from the
+        # most recent game will be searched )
+    for puuid in puuid_options:
+        if puuid == seed_puuid:
+            continue
+        additional_puuids = get_puuid_options(puuid, seed_region, depth - 1)
+        puuid_options = puuid_options.union(additional_puuids)
+
+    return puuid_options
+
+
 def get_game_history(
-    username: str,
-    tagline: str,
+    puuid: str,
     region: Region = Region.ASIA,
     **args,
 ) -> dict:
@@ -115,7 +225,6 @@ def get_game_history(
     Returns:
         dict: a dictionary of timeseries of (up to) the last 20 games
     """
-    puuid = pull_puuid(username, tagline, region).json()["puuid"]
     match_history = get_match_history(puuid, region=region, **args).json()
     timeseries = dict()
     for i, match in enumerate(match_history):
